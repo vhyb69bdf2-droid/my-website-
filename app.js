@@ -403,9 +403,19 @@ async function createOnlineRoom() {
   await firebasePut(code, {
     createdAt: Date.now(),
     settings: roomSettings(),
-    players: {
-      host: { secret: state.playerSecret, joinedAt: Date.now() }
-    },
+  players: {
+
+  host: {
+
+    secret: "",
+
+    locked: false,
+
+    joinedAt: Date.now()
+
+  }
+
+},
     turns: []
   });
 
@@ -442,10 +452,15 @@ async function joinOnlineRoom() {
   state.playerSecret = checked.value;
   applySettings(room.settings);
   els.roomCode.textContent = code;
-  await firebasePatch(`rooms/${code}/players/guest`, {
-    secret: state.playerSecret,
-    joinedAt: Date.now()
-  });
+await firebasePatch(`rooms/${code}/players/guest`, {
+
+  secret: "",
+
+  locked: false,
+
+  joinedAt: Date.now()
+
+});
 
   els.secretStatus.textContent = `Joined room ${code}. Start guessing your friend.`;
   startPolling();
@@ -497,6 +512,16 @@ function novaTurn() {
 
 async function submitOnlineGuess(guess) {
   await syncFromRoom();
+  const room = await firebaseGet(state.roomCode);
+
+const hostLocked = room?.players?.host?.locked;
+const guestLocked = room?.players?.guest?.locked;
+
+if (!hostLocked || !guestLocked) {
+  els.secretStatus.textContent =
+    "Both players must lock secrets before guessing.";
+  return;
+}
 
   if (!state.opponentSecret) {
     els.secretStatus.textContent = "Your friend has not joined or locked a secret yet.";
@@ -505,7 +530,6 @@ async function submitOnlineGuess(guess) {
 
   const clues = scoreGuess(guess, state.opponentSecret);
   const correct = guess === state.opponentSecret;
-  const room = await firebaseGet(state.roomCode);
   const turns = Array.isArray(room?.turns) ? room.turns : [];
 
   turns.push({
@@ -587,18 +611,48 @@ els.codeLength.addEventListener("change", syncLength);
 
 els.lockSecret.addEventListener("click", async () => {
   const checked = validNumber(els.secretInput.value);
+
   if (!checked.ok) {
     els.secretStatus.textContent = checked.message;
     return;
+  }
+
+  if (state.online) {
+    const room = await firebaseGet(state.roomCode);
+    const currentPlayer = room?.players?.[state.role];
+
+    if (currentPlayer?.locked) {
+      els.secretStatus.textContent =
+        "Secret already locked for this round.";
+      return;
+    }
   }
 
   state.playerSecret = checked.value;
 
   try {
     await updateOwnSecret();
-    els.secretStatus.textContent = state.online
-      ? `Secret ${checked.value} locked for room ${state.roomCode}.`
-      : `Secret ${checked.value} locked. Nova will guess against it.`;
+
+    els.secretInput.disabled = true;
+    els.lockSecret.disabled = true;
+
+    if (state.online) {
+      const room = await firebaseGet(state.roomCode);
+
+      const hostLocked = room?.players?.host?.locked;
+      const guestLocked = room?.players?.guest?.locked;
+
+      if (hostLocked && guestLocked) {
+        els.secretStatus.textContent =
+          "Both secrets locked. Match started.";
+      } else {
+        els.secretStatus.textContent =
+          "Secret locked. Waiting for other player.";
+      }
+    } else {
+      els.secretStatus.textContent =
+        `Secret ${checked.value} locked.`;
+    }
   } catch (error) {
     status(error.message);
   }
