@@ -357,10 +357,26 @@ function startPolling() {
 
 async function updateOwnSecret() {
   if (!state.online) return;
-  await firebasePatch(`rooms/${state.roomCode}/players/${state.role}`, {
-    secret: state.playerSecret,
-    updatedAt: Date.now()
-  });
+
+  const room = await firebaseGet(state.roomCode);
+  const currentPlayer = room?.players?.[state.role];
+
+  if (currentPlayer?.locked) {
+    els.secretStatus.textContent =
+      "Secret already locked for this round.";
+    return;
+  }
+
+  await firebasePatch(
+    `rooms/${state.roomCode}/players/${state.role}`,
+    {
+      secret: state.playerSecret,
+      locked: true,
+      updatedAt: Date.now()
+    }
+  );
+
+  els.secretInput.disabled = true;
 }
 
 async function updateSettingsIfHost() {
