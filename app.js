@@ -431,7 +431,8 @@ async function createOnlineRoom() {
   }
 
 },
-    turns: []
+  turns: [],
+currentTurn: Math.random() > 0.5 ? "host" : "guest"
   });
 
   state.playerHistory = [];
