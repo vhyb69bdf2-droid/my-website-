@@ -529,6 +529,9 @@ async function submitOnlineGuess(guess) {
   await syncFromRoom();
   const room = await firebaseGet(state.roomCode);
 
+console.log("TURN:", room.currentTurn);
+console.log("ROLE:", state.role);
+
 const hostLocked = room?.players?.host?.locked;
 const guestLocked = room?.players?.guest?.locked;
 
