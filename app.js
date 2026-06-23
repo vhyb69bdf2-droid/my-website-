@@ -526,11 +526,8 @@ function novaTurn() {
 }
 
 async function submitOnlineGuess(guess) {
-  await syncFromRoom();
   const room = await firebaseGet(state.roomCode);
-
-console.log("TURN:", room.currentTurn);
-console.log("ROLE:", state.role);
+const opponentRole = state.role === "host" ? "guest" : "host";
 
 const hostLocked = room?.players?.host?.locked;
 const guestLocked = room?.players?.guest?.locked;
@@ -558,13 +555,14 @@ if (
 
 }
 
-  if (!state.opponentSecret) {
-    els.secretStatus.textContent = "Your friend has not joined or locked a secret yet.";
-    return;
-  }
+const opponentSecret = room?.players?.[opponentRole]?.secret;
+if (!opponentSecret) {
+  els.secretStatus.textContent = "Your friend has not joined or locked a secret yet.";
+  return;
+}
 
-  const clues = scoreGuess(guess, state.opponentSecret);
-  const correct = guess === state.opponentSecret;
+const clues = scoreGuess(guess, opponentSecret);
+ const correct = guess === opponentSecret;
   const turns = Array.isArray(room?.turns) ? room.turns : [];
 
   turns.push({
