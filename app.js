@@ -361,6 +361,21 @@ async function updateOwnSecret() {
 
   const room = await firebaseGet(state.roomCode);
   const currentPlayer = room?.players?.[state.role];
+  const turns = Array.isArray(room?.turns)
+
+  ? room.turns
+
+  : [];
+
+if (turns.length > 0) {
+
+  els.secretStatus.textContent =
+
+    "Cannot lock or change secret after the match started.";
+
+  return;
+
+}
 
   if (currentPlayer?.locked) {
     els.secretStatus.textContent =
@@ -674,6 +689,15 @@ els.guessForm.addEventListener("submit", async (event) => {
     await submitOnlineGuess(guess);
     return;
   }
+  if (!els.secretInput.disabled) {
+
+  els.secretStatus.textContent =
+
+    "Lock your secret before guessing.";
+
+  return;
+
+}
 
   const clues = scoreGuess(guess, state.opponentSecret);
   state.playerHistory.push({ guess, clues });
