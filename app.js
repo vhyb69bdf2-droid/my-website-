@@ -537,13 +537,22 @@ if (!hostLocked || !guestLocked) {
     "Both players must lock secrets before guessing.";
   return;
 }
-  if (
+if (
+
   state.matchType === "Turn-Based" &&
-  room.currentTurn === state.role
+
+  room.currentTurn &&
+
+  room.currentTurn !== state.role
+
 ) {
+
   els.secretStatus.textContent =
+
     "Wait for your opponent's turn.";
+
   return;
+
 }
 
   if (!state.opponentSecret) {
@@ -567,7 +576,7 @@ await firebasePatch(`rooms/${state.roomCode}`, {
 
   turns,
 
-  currentTurn: state.role
+  currentTurn: state.role === "host" ? "guest" : "host"
 
 });
   state.guesses += 1;
