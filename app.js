@@ -731,4 +731,4 @@ els.resetMatch.addEventListener("click", async () => {
 });
 
 status(firebaseReady ? "Firebase configured. Create or join a room to play with a friend." : "Local demo mode. Add Firebase config for real friend multiplayer.");
-renderAll();
+renderAll();c
