@@ -333,7 +333,8 @@ async function syncFromRoom() {
     const players = room.players || {};
     const opponent = players[opponentRole];
     const turns = Array.isArray(room.turns) ? room.turns : [];
-    state.opponentSecret = opponent?.secret || "";
+   state.opponentSecret =
+  opponent?.locked ? opponent.secret : "";
     state.playerHistory = turns.filter((turn) => turn.by === state.role);
     state.opponentHistory = turns.filter((turn) => turn.by === opponentRole);
 
