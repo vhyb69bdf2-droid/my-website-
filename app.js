@@ -412,7 +412,6 @@ async function createOnlineRoom() {
   state.online = true;
   state.role = "host";
   state.roomCode = code;
-  state.playerSecret = checked.value;
   els.roomInput.value = code;
   els.roomCode.textContent = code;
 
@@ -650,7 +649,6 @@ els.lockSecret.addEventListener("click", async () => {
     await updateOwnSecret();
 
     els.secretInput.disabled = true;
-    els.lockSecret.disabled = true;
 
     if (state.online) {
       const room = await firebaseGet(state.roomCode);
