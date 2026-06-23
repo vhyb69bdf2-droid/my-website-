@@ -418,20 +418,19 @@ async function createOnlineRoom() {
   await firebasePut(code, {
     createdAt: Date.now(),
     settings: roomSettings(),
-  players: {
-
+players: {
   host: {
-
     secret: "",
-
     locked: false,
-
     joinedAt: Date.now()
-
+  },
+  guest: {
+    secret: "",
+    locked: false,
+    joinedAt: null
   }
-
 },
-  turns: [],
+turns: [],
 currentTurn: Math.random() > 0.5 ? "host" : "guest"
   });
 
