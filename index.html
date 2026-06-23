@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Numble</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="container">
+  <h1>NUMBLE</h1>
+
+  <div class="settings">
+    <h2>Settings</h2>
+
+    <label>Mode:</label>
+    <select id="mode">
+      <option value="easy">Easy</option>
+      <option value="hard">Hard</option>
+    </select>
+
+    <label>
+      <input type="checkbox" id="repeatToggle">
+      Allow Repeated Digits
+    </label>
+
+    <button onclick="startGame()">Start Game</button>
+  </div>
+
+  <div id="gameArea" class="hidden">
+    <h2>Create Secret Number</h2>
+
+    <input type="text" id="secretInput" maxlength="3" placeholder="123">
+
+    <button onclick="setSecret()">Confirm Secret Number</button>
+
+    <div id="guessSection" class="hidden">
+      <h2>Guess The Number</h2>
+
+      <input type="text" id="guessInput" maxlength="3" placeholder="123">
+
+      <button onclick="makeGuess()">Guess</button>
+
+      <div id="tracker"></div>
+
+      <div id="history"></div>
+    </div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

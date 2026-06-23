@@ -1,0 +1,87 @@
+body {
+  font-family: Arial, sans-serif;
+  background: #121212;
+  color: white;
+  display: flex;
+  justify-content: center;
+  align-items: start;
+  min-height: 100vh;
+  margin: 0;
+  padding: 40px;
+}
+
+.container {
+  width: 400px;
+}
+
+h1 {
+  text-align: center;
+  font-size: 48px;
+}
+
+.settings,
+#gameArea {
+  background: #1e1e1e;
+  padding: 20px;
+  border-radius: 12px;
+  margin-top: 20px;
+}
+
+input,
+select,
+button {
+  width: 100%;
+  padding: 12px;
+  margin-top: 10px;
+  border-radius: 8px;
+  border: none;
+  font-size: 16px;
+}
+
+button {
+  background: #4caf50;
+  color: white;
+  cursor: pointer;
+}
+
+button:hover {
+  opacity: 0.9;
+}
+
+.hidden {
+  display: none;
+}
+
+.guess-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.box {
+  width: 60px;
+  height: 60px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 8px;
+  font-size: 28px;
+  font-weight: bold;
+}
+
+.green {
+  background: #4caf50;
+}
+
+.yellow {
+  background: #c9b458;
+}
+
+.gray {
+  background: #3a3a3c;
+}
+
+#tracker {
+  margin-top: 20px;
+  line-height: 1.8;
+}
