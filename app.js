@@ -1,92 +1,148 @@
 // ─── Firebase ─────────────────────────────────────────────────────────────────
 
 const firebaseConfig = window.CIPHERROOM_FIREBASE || {};
-const firebaseBase = (firebaseConfig.databaseURL || "https://cipherroom-5fd37-default-rtdb.firebaseio.com").replace(/\/$/, "");
-const firebaseReady = Boolean(firebaseBase);
+const firebaseBase   = (firebaseConfig.databaseURL || "https://cipherroom-5fd37-default-rtdb.firebaseio.com").replace(/\/$/, "");
+const firebaseReady  = Boolean(firebaseBase);
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const ROUND_MS = 3 * 60 * 1000; // 3 minutes
-const POLL_MS  = 2000;
-const digits   = "0123456789";
+const ROUND_MS        = 3 * 60 * 1000;
+const POLL_MS         = 2000;
+const AUTO_RESTART_MS = 4000;
+const digits          = "0123456789";
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
 const state = {
-  mode:            "easy",
-  matchType:       "Real-Time",
+  // Mode: "multiplayer" | "group" | "nova"
+  playMode:        null,
+  novaDifficulty:  "easy",
+  clueMode:        "easy",   // "easy" | "hard"
   codeLength:      3,
   repeats:         false,
-  playerSecret:    "",
-  playerHistory:   [],
-  opponentHistory: [],
-  wins:            0,
-  streak:          0,
-  guesses:         0,
+
+  // 1v1
+  matchType:       "Real-Time",
   online:          false,
   role:            null,
-  roomCode:        "ABCD",
+  roomCode:        null,
   poller:          null,
   timerInterval:   null,
-  secretLocked:    false,   // local lock state (disables input / flips button)
+  secretLocked:    false,
+  playerSecret:    "",
+  opponentSecret:  "",
+  playerHistory:   [],
+  opponentHistory: [],
   roundNumber:     0,
+
+  // Group
+  groupMatchType:    "Real-Time",
+  groupVisibility:   "all",   // "all" | "own"
+  groupOnline:       false,
+  groupRoomCode:     null,
+  groupPoller:       null,
+  groupTimerInterval:null,
+  groupPlayerName:   null,   // e.g. "player_1234"
+  groupSecret:       "",     // the shared auto-generated code
+
+  // Nova AI
+  novaCandidates:  [],
 };
 
 // ─── DOM refs ─────────────────────────────────────────────────────────────────
 
+const q  = id => document.querySelector(id);
 const els = {
-  themeToggle:          document.querySelector("#themeToggle"),
-  createRoom:           document.querySelector("#createRoom"),
-  joinRoom:             document.querySelector("#joinRoom"),
-  roomInput:            document.querySelector("#roomInput"),
-  roomCode:             document.querySelector("#roomCode"),
-  connectionStatus:     document.querySelector("#connectionStatus"),
-  easyMode:             document.querySelector("#easyMode"),
-  hardMode:             document.querySelector("#hardMode"),
-  realTime:             document.querySelector("#realTime"),
-  turnBased:            document.querySelector("#turnBased"),
-  repeatDigits:         document.querySelector("#repeatDigits"),
-  codeLength:           document.querySelector("#codeLength"),
-  winCondition:         document.querySelector("#winCondition"),
-  modeBadge:            document.querySelector("#modeBadge"),
-  matchBadge:           document.querySelector("#matchBadge"),
-  opponentTitle:        document.querySelector("#opponentTitle"),
-  opponentHistoryTitle: document.querySelector("#opponentHistoryTitle"),
-  secretInput:          document.querySelector("#secretInput"),
-  lockSecret:           document.querySelector("#lockSecret"),
-  secretStatus:         document.querySelector("#secretStatus"),
-  guessForm:            document.querySelector("#guessForm"),
-  guessInput:           document.querySelector("#guessInput"),
-  historyList:          document.querySelector("#historyList"),
-  novaHistoryList:      document.querySelector("#novaHistoryList"),
-  novaModeLabel:        document.querySelector("#novaModeLabel"),
-  digitGrid:            document.querySelector("#digitGrid"),
-  resetMatch:           document.querySelector("#resetMatch"),
-  winsStat:             document.querySelector("#winsStat"),
-  streakStat:           document.querySelector("#streakStat"),
-  accuracyStat:         document.querySelector("#accuracyStat"),
+  // Picker
+  modePicker:          q("#modePicker"),
+  pickCards:           q("#pickCards"),
+  pickMultiplayer:     q("#pickMultiplayer"),
+  pickGroup:           q("#pickGroup"),
+  pickNova:            q("#pickNova"),
+  novaDiffPicker:      q("#novaDiffPicker"),
+  backToModes:         q("#backToModes"),
+
+  // Nav
+  brandHome:           q("#brandHome"),
+  switchMode:          q("#switchMode"),
+  themeToggle:         q("#themeToggle"),
+
+  // Control panel sections
+  multiControls:       q("#multiControls"),
+  multiGroupControls:  q("#multiGroupControls"),
+  novaControls:        q("#novaControls"),
+  controlEyebrow:      q("#controlEyebrow"),
+  controlTitle:        q("#controlTitle"),
+
+  // 1v1 controls
+  createRoom:          q("#createRoom"),
+  joinRoom:            q("#joinRoom"),
+  roomInput:           q("#roomInput"),
+  roomCode:            q("#roomCode"),
+  connectionStatus:    q("#connectionStatus"),
+  realTime:            q("#realTime"),
+  turnBased:           q("#turnBased"),
+
+  // Group controls
+  createGroupRoom:     q("#createGroupRoom"),
+  joinGroupRoom:       q("#joinGroupRoom"),
+  groupRoomInput:      q("#groupRoomInput"),
+  groupRoomCode:       q("#groupRoomCode"),
+  groupStatus:         q("#groupStatus"),
+  groupRealTime:       q("#groupRealTime"),
+  groupTurnBased:      q("#groupTurnBased"),
+  groupEasyVis:        q("#groupEasyVis"),
+  groupHardVis:        q("#groupHardVis"),
+
+  // Nova
+  diffEasy:            q("#diffEasy"),
+  diffMedium:          q("#diffMedium"),
+  diffImpossible:      q("#diffImpossible"),
+  novaStatus:          q("#novaStatus"),
+
+  // Shared settings
+  easyMode:            q("#easyMode"),
+  hardMode:            q("#hardMode"),
+  repeatDigits:        q("#repeatDigits"),
+  codeLength:          q("#codeLength"),
+
+  // Badges
+  modeBadge:           q("#modeBadge"),
+  matchBadge:          q("#matchBadge"),
+  novaDiffBadge:       q("#novaDiffBadge"),
+
+  // Play area — 1v1/Nova
+  opponentTitle:       q("#opponentTitle"),
+  secretPanel:         q("#secretPanel"),
+  secretInput:         q("#secretInput"),
+  lockSecret:          q("#lockSecret"),
+  secretStatus:        q("#secretStatus"),
+  roundTimer:          q("#roundTimer"),
+  overtimePanel:       q("#overtimePanel"),
+  voteOvertime:        q("#voteOvertime"),
+  voteDraw:            q("#voteDraw"),
+  turnIndicator:       q("#turnIndicator"),
+  roundResult:         q("#roundResult"),
+  guessForm:           q("#guessForm"),
+  guessInput:          q("#guessInput"),
+  standardBoard:       q("#standardBoard"),
+  historyList:         q("#historyList"),
+  opponentHistoryTitle:q("#opponentHistoryTitle"),
+  novaHistoryList:     q("#novaHistoryList"),
+  novaModeLabel:       q("#novaModeLabel"),
+  digitGrid:           q("#digitGrid"),
+  resetMatch:          q("#resetMatch"),
+
+  // Play area — group
+  groupSecretPanel:    q("#groupSecretPanel"),
+  groupSecretStatus:   q("#groupSecretStatus"),
+  groupRoundTimer:     q("#groupRoundTimer"),
+  groupTurnIndicator:  q("#groupTurnIndicator"),
+  groupRoundResult:    q("#groupRoundResult"),
+  groupBoard:          q("#groupBoard"),
+  groupBoardWrap:      q("#groupBoardWrap"),
+  resetGroupMatch:     q("#resetGroupMatch"),
 };
-
-// ─── Inject overtime / timer UI (not in original HTML) ───────────────────────
-
-const timerEl = document.createElement("p");
-timerEl.id = "roundTimer";
-timerEl.role = "status";
-timerEl.style.cssText = "font-size:1rem;font-weight:700;margin:4px 0 0;letter-spacing:.04em;min-height:1.4em;";
-els.secretStatus.parentNode.insertBefore(timerEl, els.secretStatus.nextSibling);
-
-const overtimeEl = document.createElement("div");
-overtimeEl.id = "overtimePanel";
-overtimeEl.style.cssText = "display:none;margin-top:8px;";
-overtimeEl.innerHTML = `
-  <p style="margin:0 0 6px;font-weight:600;">Time's up! Vote to continue:</p>
-  <button id="voteOvertime" type="button" class="primary-action small" style="margin-right:6px;">Overtime</button>
-  <button id="voteDraw"     type="button" class="secondary-action small">End as Draw</button>
-`;
-timerEl.parentNode.insertBefore(overtimeEl, timerEl.nextSibling);
-
-const voteOvertimeBtn = overtimeEl.querySelector("#voteOvertime");
-const voteDrawBtn     = overtimeEl.querySelector("#voteDraw");
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -96,14 +152,26 @@ function randomRoomCode() {
 }
 
 function makeSecret(length, repeats) {
-  let pool = digits.split("");
-  let code = "";
+  let pool = digits.split(""), code = "";
   while (code.length < length) {
     const pick = pool[Math.floor(Math.random() * pool.length)];
     code += pick;
     if (!repeats) pool = pool.filter(d => d !== pick);
   }
   return code;
+}
+
+function allCodes(length, repeats) {
+  const results = [];
+  function build(cur) {
+    if (cur.length === length) { results.push(cur); return; }
+    for (const d of digits) {
+      if (!repeats && cur.includes(d)) continue;
+      build(cur + d);
+    }
+  }
+  build("");
+  return results;
 }
 
 function validNumber(value) {
@@ -118,15 +186,15 @@ function validNumber(value) {
 // ─── Scoring ─────────────────────────────────────────────────────────────────
 
 function scoreEasy(guess, secret) {
-  const result    = Array(guess.length).fill("gray");
-  const remaining = {};
+  const result = Array(guess.length).fill("gray");
+  const rem    = {};
   for (let i = 0; i < secret.length; i++) {
     if (guess[i] === secret[i]) result[i] = "green";
-    else remaining[secret[i]] = (remaining[secret[i]] || 0) + 1;
+    else rem[secret[i]] = (rem[secret[i]] || 0) + 1;
   }
   for (let i = 0; i < guess.length; i++) {
     if (result[i] === "green") continue;
-    if (remaining[guess[i]] > 0) { result[i] = "yellow"; remaining[guess[i]]--; }
+    if (rem[guess[i]] > 0) { result[i] = "yellow"; rem[guess[i]]--; }
   }
   return result;
 }
@@ -134,82 +202,141 @@ function scoreEasy(guess, secret) {
 function scoreHard(guess, secret) {
   const counts = {};
   for (const d of secret) counts[d] = (counts[d] || 0) + 1;
-  return guess.split("").map(d => {
-    if (counts[d] > 0) { counts[d]--; return "yellow"; }
-    return "gray";
-  });
+  return guess.split("").map(d => { if (counts[d] > 0) { counts[d]--; return "yellow"; } return "gray"; });
 }
 
 function scoreGuess(guess, secret) {
-  return state.mode === "easy" ? scoreEasy(guess, secret) : scoreHard(guess, secret);
+  return state.clueMode === "easy" ? scoreEasy(guess, secret) : scoreHard(guess, secret);
 }
 
-function clueSymbol(type) {
-  return type === "green" ? "✓" : type === "yellow" ? "•" : "×";
+function cluesMatchEasy(guess, secret, clues) {
+  return scoreEasy(guess, secret).every((c, i) => c === clues[i]);
+}
+
+function clueSymbol(c) { return c === "green" ? "✓" : c === "yellow" ? "•" : "×"; }
+
+// ─── Nova AI ─────────────────────────────────────────────────────────────────
+
+function novaInitCandidates() {
+  state.novaCandidates = allCodes(state.codeLength, state.repeats);
+}
+
+function novaFilterCandidates(guess, clues) {
+  state.novaCandidates = state.novaCandidates.filter(c => cluesMatchEasy(guess, c, clues));
+}
+
+function novaPickEasy() {
+  // Eliminate confirmed-absent digits; pick randomly among remaining
+  const absent = new Set();
+  state.opponentHistory.forEach(t => t.guess.split("").forEach((d, i) => { if (t.clues[i] === "gray") absent.add(d); }));
+  const pool = digits.split("").filter(d => !absent.has(d));
+  if (pool.length < state.codeLength) return makeSecret(state.codeLength, state.repeats);
+  let code = "", tries = 0;
+  while (code.length < state.codeLength && tries++ < 300) {
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    if (!state.repeats && code.includes(pick)) continue;
+    code += pick;
+  }
+  return code.length === state.codeLength ? code : makeSecret(state.codeLength, state.repeats);
+}
+
+function novaPickMedium() {
+  if (!state.novaCandidates.length) return makeSecret(state.codeLength, state.repeats);
+  return state.novaCandidates[Math.floor(Math.random() * state.novaCandidates.length)];
+}
+
+function novaPickImpossible() {
+  const cands = state.novaCandidates;
+  if (cands.length <= 2) return cands[0] || makeSecret(state.codeLength, state.repeats);
+  const pool = cands.length > 30 ? cands.slice(0, 30) : cands;
+  let best = cands[0], bestWorst = Infinity;
+  for (const guess of pool) {
+    const buckets = {};
+    for (const c of cands) { const k = scoreEasy(guess, c).join(","); buckets[k] = (buckets[k] || 0) + 1; }
+    const worst = Math.max(...Object.values(buckets));
+    if (worst < bestWorst) { bestWorst = worst; best = guess; }
+  }
+  return best;
+}
+
+function novaPick() {
+  switch (state.novaDifficulty) {
+    case "medium":     return novaPickMedium();
+    case "impossible": return novaPickImpossible();
+    default:           return novaPickEasy();
+  }
+}
+
+function novaTakeTurn() {
+  const guess = novaPick();
+  const clues = scoreEasy(guess, state.playerSecret);
+  state.opponentHistory.push({ guess, clues });
+  if (state.novaDifficulty !== "easy") novaFilterCandidates(guess, clues);
+  return guess === state.playerSecret;
 }
 
 // ─── Firebase helpers ─────────────────────────────────────────────────────────
 
-const roomUrl = code => `${firebaseBase}/rooms/${code}.json`;
+const roomUrl  = code => `${firebaseBase}/rooms/${code}.json`;
+const groupUrl = code => `${firebaseBase}/groupRooms/${code}.json`;
 
-async function fbGet(code) {
-  const r = await fetch(roomUrl(code));
-  if (!r.ok) throw new Error("Could not reach Firebase.");
-  return r.json();
+async function fbGet(code)          { const r = await fetch(roomUrl(code));  if (!r.ok) throw new Error("Firebase read failed."); return r.json(); }
+async function fbGetGroup(code)     { const r = await fetch(groupUrl(code)); if (!r.ok) throw new Error("Firebase read failed."); return r.json(); }
+
+async function fbPut(code, val) {
+  const r = await fetch(roomUrl(code), { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(val) });
+  if (!r.ok) throw new Error("Firebase write failed."); return r.json();
+}
+async function fbPutGroup(code, val) {
+  const r = await fetch(groupUrl(code), { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(val) });
+  if (!r.ok) throw new Error("Firebase write failed."); return r.json();
+}
+async function fbPatch(path, val) {
+  const r = await fetch(`${firebaseBase}/${path}.json`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(val) });
+  if (!r.ok) throw new Error("Firebase patch failed."); return r.json();
 }
 
-async function fbPut(code, value) {
-  const r = await fetch(roomUrl(code), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(value),
-  });
-  if (!r.ok) throw new Error("Could not save room.");
-  return r.json();
+// ─── Cross-device lock fix ────────────────────────────────────────────────────
+// Firebase REST can return a stale snapshot immediately after a PATCH from
+// another device. We retry fbGet up to 5 times with a short delay until both
+// players show as locked, before deciding the state is definitive.
+
+async function fbGetUntilBothLocked(code, myRole, maxRetries = 5, delayMs = 600) {
+  for (let i = 0; i < maxRetries; i++) {
+    const room = await fbGet(code);
+    const h = room?.players?.host?.locked;
+    const g = room?.players?.guest?.locked;
+    if (h && g) return room;          // both locked — fresh data confirmed
+    if (i < maxRetries - 1) await new Promise(r => setTimeout(r, delayMs));
+  }
+  return await fbGet(code);           // return whatever we have after retries
 }
 
-async function fbPatch(path, value) {
-  const r = await fetch(`${firebaseBase}/${path}.json`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(value),
-  });
-  if (!r.ok) throw new Error("Could not update room.");
-  return r.json();
-}
-
-// ─── Settings sync ────────────────────────────────────────────────────────────
+// ─── Settings ────────────────────────────────────────────────────────────────
 
 function roomSettings() {
-  return {
-    mode:         state.mode,
-    matchType:    state.matchType,
-    codeLength:   state.codeLength,
-    repeats:      state.repeats,
-    winCondition: els.winCondition.value,
-  };
+  return { clueMode: state.clueMode, matchType: state.matchType, codeLength: state.codeLength, repeats: state.repeats };
 }
 
 function applySettings(s) {
   if (!s) return;
-  state.mode      = s.mode      || "easy";
-  state.matchType = s.matchType || "Real-Time";
+  state.clueMode   = s.clueMode  || "easy";
+  state.matchType  = s.matchType || "Real-Time";
   state.codeLength = Number(s.codeLength || 3);
-  state.repeats   = Boolean(s.repeats);
-  els.codeLength.value       = String(state.codeLength);
-  els.repeatDigits.checked   = state.repeats;
-  els.winCondition.value     = s.winCondition || "First correct guess";
-  els.secretInput.maxLength  = state.codeLength;
-  els.guessInput.maxLength   = state.codeLength;
-  syncModeButtons();
+  state.repeats    = Boolean(s.repeats);
+  els.codeLength.value      = String(state.codeLength);
+  els.repeatDigits.checked  = state.repeats;
+  els.secretInput.maxLength = state.codeLength;
+  els.guessInput.maxLength  = state.codeLength;
+  syncClueButtons();
   syncMatchButtons();
 }
 
-function syncModeButtons() {
-  els.easyMode.classList.toggle("active", state.mode === "easy");
-  els.hardMode.classList.toggle("active", state.mode === "hard");
-  els.modeBadge.textContent   = state.mode === "easy" ? "Easy" : "Hard";
-  els.novaModeLabel.textContent = state.mode === "easy" ? "Easy clues" : "Hard clues";
+function syncClueButtons() {
+  els.easyMode.classList.toggle("active", state.clueMode === "easy");
+  els.hardMode.classList.toggle("active", state.clueMode === "hard");
+  els.modeBadge.textContent     = state.clueMode === "easy" ? "Easy" : "Hard";
+  els.novaModeLabel.textContent = state.clueMode === "easy" ? "Easy clues" : "Hard clues";
 }
 
 function syncMatchButtons() {
@@ -218,59 +345,70 @@ function syncMatchButtons() {
   els.matchBadge.textContent = state.matchType;
 }
 
-function statusMsg(msg) { els.connectionStatus.textContent = msg; }
+function syncGroupMatchButtons() {
+  els.groupRealTime.classList.toggle("active",  state.groupMatchType === "Real-Time");
+  els.groupTurnBased.classList.toggle("active", state.groupMatchType === "Turn-Based");
+}
 
-// ─── Lock-button UI ───────────────────────────────────────────────────────────
+function syncGroupVisButtons() {
+  els.groupEasyVis.classList.toggle("active", state.groupVisibility === "all");
+  els.groupHardVis.classList.toggle("active", state.groupVisibility === "own");
+}
+
+function syncDiffButtons() {
+  els.diffEasy.classList.toggle("active",       state.novaDifficulty === "easy");
+  els.diffMedium.classList.toggle("active",     state.novaDifficulty === "medium");
+  els.diffImpossible.classList.toggle("active", state.novaDifficulty === "impossible");
+  const b = els.novaDiffBadge;
+  b.textContent = state.novaDifficulty.charAt(0).toUpperCase() + state.novaDifficulty.slice(1);
+  b.className   = state.novaDifficulty;
+}
+
+// ─── Lock button UI ───────────────────────────────────────────────────────────
 
 function applyLockUI(locked) {
-  state.secretLocked          = locked;
-  els.secretInput.disabled    = locked;
-  els.lockSecret.textContent  = locked ? "Secret Locked" : "Lock Secret";
-  els.lockSecret.disabled     = locked;
+  state.secretLocked         = locked;
+  els.secretInput.disabled   = locked;
+  els.lockSecret.textContent = locked ? "Secret Locked" : "Lock Secret";
+  els.lockSecret.disabled    = locked;
   els.lockSecret.classList.toggle("locked-btn", locked);
 }
 
+// ─── Result banner ────────────────────────────────────────────────────────────
+
+function showResult(el, type, msg) { el.textContent = msg; el.className = type; el.style.display = "block"; }
+function hideResult(el)            { el.style.display = "none"; el.className = ""; }
+
 // ─── Timer ────────────────────────────────────────────────────────────────────
 
-function stopTimer() {
-  if (state.timerInterval) { clearInterval(state.timerInterval); state.timerInterval = null; }
-  timerEl.textContent = "";
-  timerEl.style.color = "";
+function stopTimer(timerEl, intervalKey) {
+  if (state[intervalKey]) { clearInterval(state[intervalKey]); state[intervalKey] = null; }
+  if (timerEl) timerEl.textContent = "";
 }
 
-function startTimer(roundStartedAt) {
-  stopTimer();
-  overtimeEl.style.display = "none";
-
+function startTimerEl(timerEl, intervalKey, roundStartedAt, onExpire) {
+  stopTimer(timerEl, intervalKey);
   function tick() {
-    const remaining = ROUND_MS - (Date.now() - roundStartedAt);
-    if (remaining <= 0) {
-      stopTimer();
+    const rem = ROUND_MS - (Date.now() - roundStartedAt);
+    if (rem <= 0) {
+      stopTimer(timerEl, intervalKey);
       timerEl.textContent = "⏰ Time's up!";
-      overtimeEl.style.display = "block";
-      // Host writes timedOut flag so both clients know
-      if (state.role === "host") {
-        fbPatch(`rooms/${state.roomCode}`, { timedOut: true, overtimeVotes: {} }).catch(() => {});
-      }
+      onExpire();
       return;
     }
-    const m = Math.floor(remaining / 60000);
-    const s = Math.floor((remaining % 60000) / 1000).toString().padStart(2, "0");
+    const m = Math.floor(rem / 60000), s = Math.floor((rem % 60000) / 1000).toString().padStart(2, "0");
     timerEl.textContent = `⏱ ${m}:${s} remaining`;
-    timerEl.style.color = remaining < 30000 ? "var(--clue-wrong, #e44)" : "";
+    timerEl.style.color = rem < 30000 ? "var(--red)" : "var(--cyan)";
   }
-
   tick();
-  state.timerInterval = setInterval(tick, 500);
+  state[intervalKey] = setInterval(tick, 500);
 }
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
 
 function historyRow(turn) {
-  const clueHtml = turn.clues
-    .map(c => `<span class="clue ${c}" title="${c}">${clueSymbol(c)}</span>`)
-    .join("");
-  return `<span class="guess-number">${turn.guess}</span><span class="clues">${clueHtml}</span>`;
+  const ch = turn.clues.map(c => `<span class="clue ${c}" title="${c}">${clueSymbol(c)}</span>`).join("");
+  return `<span class="guess-number">${turn.guess}</span><span class="clues">${ch}</span>`;
 }
 
 function renderHistoryList(listEl, turns, emptyText) {
@@ -278,11 +416,10 @@ function renderHistoryList(listEl, turns, emptyText) {
   if (!turns.length) {
     const li = document.createElement("li");
     li.className = "history-item";
-    li.innerHTML = `<span class="guess-number">---</span><span class="clues"><span class="section-title">${emptyText}</span></span>`;
+    li.innerHTML = `<span class="guess-number">---</span><span class="clues"><em style="color:var(--muted);font-style:normal;font-size:.85rem">${emptyText}</em></span>`;
     listEl.append(li);
     return;
   }
-  // prepend so newest is on top
   [...turns].reverse().forEach(turn => {
     const li = document.createElement("li");
     li.className = "history-item";
@@ -294,98 +431,236 @@ function renderHistoryList(listEl, turns, emptyText) {
 function renderHistories() {
   renderHistoryList(els.historyList,     state.playerHistory,   "No guesses yet");
   renderHistoryList(els.novaHistoryList, state.opponentHistory,
-    state.online ? "Friend has not guessed yet" : "Nova has not guessed");
+    state.playMode === "multiplayer" ? "Friend has not guessed yet" : "Nova has not guessed yet");
 }
 
 function trackerState() {
   const known = Object.fromEntries(digits.split("").map(d => [d, "unknown"]));
-  state.playerHistory.forEach(turn => {
-    turn.guess.split("").forEach((digit, i) => {
-      const clue = turn.clues[i];
-      if (clue === "green" || clue === "yellow") known[digit] = "exists";
-      else if (known[digit] !== "exists") known[digit] = "absent";
-    });
-  });
+  state.playerHistory.forEach(t => t.guess.split("").forEach((d, i) => {
+    const c = t.clues[i];
+    if (c === "green" || c === "yellow") known[d] = "exists";
+    else if (known[d] !== "exists") known[d] = "absent";
+  }));
   return known;
 }
 
 function renderTracker() {
-  if (state.mode === "hard") {
+  if (state.clueMode === "hard" || state.playMode === "group") {
     els.digitGrid.className   = "tracker-hidden";
-    els.digitGrid.textContent = "Tracker unavailable in hard mode.";
+    els.digitGrid.textContent = "No tracker in this mode.";
     return;
   }
   els.digitGrid.className = "digit-grid";
   els.digitGrid.innerHTML = "";
   const known = trackerState();
-  for (const digit of digits) {
+  for (const d of digits) {
     const cell = document.createElement("div");
     cell.className = "digit-cell";
-    const sym = known[digit] === "exists" ? "✓" : known[digit] === "absent" ? "×" : "?";
-    cell.innerHTML = `<span>${digit}</span><span>${sym}</span>`;
+    cell.innerHTML = `<span>${d}</span><span>${known[d] === "exists" ? "✓" : known[d] === "absent" ? "×" : "?"}</span>`;
     els.digitGrid.append(cell);
   }
 }
 
-function renderStats() {
-  const acc = state.guesses ? Math.round((state.wins / state.guesses) * 100) : 0;
-  els.winsStat.textContent    = state.wins;
-  els.streakStat.textContent  = state.streak;
-  els.accuracyStat.textContent = `${acc}%`;
+function renderTurnIndicator(currentTurn) {
+  const ti = els.turnIndicator;
+  if (!state.online || state.matchType !== "Turn-Based") { ti.style.display = "none"; return; }
+  ti.style.display = "block";
+  if (!currentTurn) { ti.textContent = "Waiting for both players to lock…"; ti.className = ""; }
+  else if (currentTurn === state.role) { ti.textContent = "🟢 Your turn!"; ti.className = "your-turn"; }
+  else { ti.textContent = "⏳ Opponent's turn…"; ti.className = ""; }
 }
 
 function renderLabels() {
-  els.opponentTitle.textContent        = state.online ? "Friend room is connected" : "Choose a mode, then race Nova";
-  els.opponentHistoryTitle.textContent = state.online ? "Friend's Guesses" : "Nova's Guesses";
+  if (state.playMode === "nova") {
+    const d = state.novaDifficulty;
+    els.opponentTitle.textContent        = `vs Nova · ${d.charAt(0).toUpperCase() + d.slice(1)}`;
+    els.opponentHistoryTitle.textContent = "Nova's Guesses";
+  } else if (state.playMode === "multiplayer") {
+    els.opponentTitle.textContent        = state.online ? "Friend room connected" : "Waiting for opponent";
+    els.opponentHistoryTitle.textContent = "Friend's Guesses";
+  }
 }
 
-function renderAll() {
+function renderAll(currentTurn) {
   renderLabels();
   renderHistories();
   renderTracker();
-  renderStats();
+  renderTurnIndicator(currentTurn);
 }
 
-// ─── Local (vs Nova) ─────────────────────────────────────────────────────────
+// ─── Group board rendering ────────────────────────────────────────────────────
 
-function clearLocalMatch(message) {
+function renderGroupBoard(room) {
+  if (!room) return;
+  const players    = room.players || {};
+  const allTurns   = Array.isArray(room.turns) ? room.turns : [];
+  const round      = room.roundNumber || 0;
+  const roundTurns = allTurns.filter(t => (t.round || 0) === round);
+  const visibility = room.settings?.groupVisibility || "all";
+
+  els.groupBoardWrap.innerHTML = "";
+
+  const names = Object.keys(players);
+  names.forEach(name => {
+    const isMe    = name === state.groupPlayerName;
+    const myTurns = roundTurns.filter(t => t.by === name);
+    const show    = visibility === "all" || isMe;
+
+    const col = document.createElement("div");
+    col.className = "group-col";
+    col.innerHTML = `<h4>${isMe ? "You" : name.replace("player_", "Player ")}${isMe ? " (you)" : ""}</h4>`;
+
+    const ol = document.createElement("ol");
+    ol.className = "history-list";
+
+    if (!show) {
+      const li = document.createElement("li");
+      li.className = "history-item";
+      li.innerHTML = `<span class="guess-number">---</span><span class="clues"><em style="color:var(--muted);font-style:normal;font-size:.85rem">Hidden</em></span>`;
+      ol.append(li);
+    } else if (!myTurns.length) {
+      const li = document.createElement("li");
+      li.className = "history-item";
+      li.innerHTML = `<span class="guess-number">---</span><span class="clues"><em style="color:var(--muted);font-style:normal;font-size:.85rem">No guesses yet</em></span>`;
+      ol.append(li);
+    } else {
+      [...myTurns].reverse().forEach(turn => {
+        const li = document.createElement("li");
+        li.className = "history-item";
+        li.innerHTML = historyRow(turn);
+        ol.append(li);
+      });
+    }
+
+    col.append(ol);
+    els.groupBoardWrap.append(col);
+  });
+
+  // Turn indicator for group turn-based
+  const gti = els.groupTurnIndicator;
+  if (room.settings?.groupMatchType === "Turn-Based" && room.currentTurn) {
+    gti.style.display = "block";
+    if (room.currentTurn === state.groupPlayerName) {
+      gti.textContent = "🟢 Your turn!";
+      gti.className   = "your-turn";
+    } else {
+      gti.textContent = `⏳ ${room.currentTurn.replace("player_", "Player ")}'s turn…`;
+      gti.className   = "";
+    }
+  } else {
+    gti.style.display = "none";
+  }
+}
+
+// ─── Mode picker UI ───────────────────────────────────────────────────────────
+
+function showModePicker() {
+  els.modePicker.style.display     = "flex";
+  els.novaDiffPicker.style.display = "none";
+  els.pickCards.style.display      = "grid";
+}
+
+function hideModePicker() { els.modePicker.style.display = "none"; }
+
+function setControlPanel(mode) {
+  els.multiControls.style.display      = mode === "multiplayer" ? "block" : "none";
+  els.multiGroupControls.style.display = mode === "group"        ? "block" : "none";
+  els.novaControls.style.display       = mode === "nova"         ? "block" : "none";
+}
+
+function enterMultiplayerMode() {
+  state.playMode = "multiplayer";
+  hideModePicker();
+  setControlPanel("multiplayer");
+  els.controlEyebrow.textContent = "Multiplayer";
+  els.controlTitle.textContent   = "Match Setup";
+  els.matchBadge.style.display   = "inline";
+  els.novaDiffBadge.style.display = "none";
+  els.secretPanel.style.display  = "grid";
+  els.groupSecretPanel.style.display = "none";
+  els.standardBoard.style.display = "grid";
+  els.groupBoard.style.display    = "none";
+  els.guessInput.maxLength        = state.codeLength;
+  syncMatchButtons();
+  resetLocalState("Create or join a room, lock your secret, and start guessing.");
+}
+
+function enterGroupMode() {
+  state.playMode = "group";
+  hideModePicker();
+  setControlPanel("group");
+  els.controlEyebrow.textContent  = "Group Play";
+  els.controlTitle.textContent    = "Group Setup";
+  els.matchBadge.style.display    = "none";
+  els.novaDiffBadge.style.display = "none";
+  els.secretPanel.style.display   = "none";
+  els.groupSecretPanel.style.display = "block";
+  els.standardBoard.style.display = "none";
+  els.groupBoard.style.display    = "block";
+  els.guessInput.maxLength        = state.codeLength;
+  syncGroupMatchButtons();
+  syncGroupVisButtons();
+  els.groupSecretStatus.textContent = "Create or join a group room to start.";
+}
+
+function enterNovaMode(difficulty) {
+  state.playMode      = "nova";
+  state.novaDifficulty = difficulty || state.novaDifficulty;
+  hideModePicker();
+  setControlPanel("nova");
+  els.controlEyebrow.textContent  = "vs Nova";
+  els.controlTitle.textContent    = "Nova Match";
+  els.matchBadge.style.display    = "none";
+  els.novaDiffBadge.style.display = "inline";
+  els.secretPanel.style.display   = "grid";
+  els.groupSecretPanel.style.display = "none";
+  els.standardBoard.style.display = "grid";
+  els.groupBoard.style.display    = "none";
+  syncDiffButtons();
+  startNovaRound("Enter and lock your secret to begin.");
+}
+
+// ─── Nova round ───────────────────────────────────────────────────────────────
+
+function startNovaRound(msg) {
   state.playerHistory   = [];
   state.opponentHistory = [];
-  state.guesses         = 0;
-  const newSecret       = makeSecret(state.codeLength, state.repeats);
-  state.opponentSecret  = newSecret;       // Nova's secret (hidden)
-  // Unlock so player can set their own secret for the new round
+  state.opponentSecret  = makeSecret(state.codeLength, state.repeats);
+  novaInitCandidates();
   applyLockUI(false);
-  els.secretInput.value = "";
-  els.guessInput.value  = state.codeLength === 3 ? "538" : makeSecret(state.codeLength, state.repeats);
-  els.secretStatus.textContent = message;
+  els.secretInput.value        = "";
+  els.guessInput.value         = "";
+  els.secretStatus.textContent = msg;
+  hideResult(els.roundResult);
   renderAll();
 }
 
-function novaTurn(playerSecret) {
-  const guess = makeSecret(state.codeLength, state.repeats);
-  const clues = scoreGuess(guess, playerSecret);
-  state.opponentHistory.push({ guess, clues });
-  if (guess === playerSecret) {
-    state.streak = 0;
-    els.secretStatus.textContent = `Nova guessed your secret ${playerSecret}! Nova wins this room.`;
-    return true;
-  }
-  return false;
+function resetLocalState(msg) {
+  state.playerHistory   = [];
+  state.opponentHistory = [];
+  state.opponentSecret  = "";
+  applyLockUI(false);
+  els.secretInput.value        = "";
+  els.guessInput.value         = "";
+  els.secretStatus.textContent = msg;
+  hideResult(els.roundResult);
+  renderAll();
 }
 
-// ─── Polling / sync ───────────────────────────────────────────────────────────
+// ─── 1v1 polling ─────────────────────────────────────────────────────────────
 
-function stopPolling() {
-  if (state.poller) { clearInterval(state.poller); state.poller = null; }
-}
+function stopPolling() { if (state.poller) { clearInterval(state.poller); state.poller = null; } }
 
 async function syncFromRoom() {
   if (!state.online || !state.roomCode) return;
-
   try {
-    const room = await fbGet(state.roomCode);
-    if (!room) { statusMsg("Room no longer exists."); return; }
+    // Use retry-aware fetch so cross-device stale reads resolve
+    const room = state.checkingLock
+      ? await fbGetUntilBothLocked(state.roomCode, state.role)
+      : await fbGet(state.roomCode);
+    state.checkingLock = false;
+
+    if (!room) { els.connectionStatus.textContent = "Room no longer exists."; return; }
 
     applySettings(room.settings);
 
@@ -394,92 +669,83 @@ async function syncFromRoom() {
     const me           = players[state.role]   || {};
     const opponent     = players[opponentRole] || {};
 
-    // Reflect lock state from Firebase (covers rejoins, refreshes)
     if (me.locked && !state.secretLocked) applyLockUI(true);
 
-    // Only show turns from the current round — clears history between rounds
-    const currentRound = room.roundNumber || 0;
-    state.roundNumber  = currentRound;
-    const allTurns     = Array.isArray(room.turns) ? room.turns : [];
-    const roundTurns   = allTurns.filter(t => (t.round || 0) === currentRound);
+    const round      = room.roundNumber || 0;
+    state.roundNumber = round;
+    const allTurns   = Array.isArray(room.turns) ? room.turns : [];
+    const roundTurns = allTurns.filter(t => (t.round || 0) === round);
 
     state.playerHistory   = roundTurns.filter(t => t.by === state.role);
     state.opponentHistory = roundTurns.filter(t => t.by === opponentRole);
+    state.opponentSecret  = opponent.locked ? opponent.secret : "";
 
-    // Opponent's secret (only visible once they've locked)
-    state.opponentSecret = opponent.locked ? opponent.secret : "";
-
-    // Timer — start when both are locked and roundStartedAt exists
+    // Timer
     if (state.matchType === "Real-Time" && room.roundStartedAt && !state.timerInterval && !room.timedOut) {
-      startTimer(room.roundStartedAt);
+      startTimerEl(els.roundTimer, "timerInterval", room.roundStartedAt, () => {
+        els.overtimePanel.style.display = "block";
+        if (state.role === "host") fbPatch(`rooms/${state.roomCode}`, { timedOut: true, overtimeVotes: {} }).catch(() => {});
+      });
     }
     if (room.timedOut && state.timerInterval) {
-      stopTimer();
-      timerEl.textContent      = "⏰ Time's up!";
-      overtimeEl.style.display = "block";
+      stopTimer(els.roundTimer, "timerInterval");
+      els.roundTimer.textContent      = "⏰ Time's up!";
+      els.overtimePanel.style.display = "block";
     }
 
-    // Overtime votes: if both voted overtime, host extends the round
+    // Overtime resolution
     if (room.timedOut && room.overtimeVotes) {
       const votes = Object.values(room.overtimeVotes);
       if (votes.filter(v => v === "overtime").length === 2) {
-        // Both voted overtime — extend
         if (state.role === "host") {
-          await fbPatch(`rooms/${state.roomCode}`, {
-            timedOut:       false,
-            roundStartedAt: Date.now(),
-            overtimeVotes:  {},
-          });
+          await fbPatch(`rooms/${state.roomCode}`, { timedOut: false, roundStartedAt: Date.now(), overtimeVotes: {} });
         }
-        overtimeEl.style.display = "none";
-      } else if (votes.filter(v => v === "draw").length >= 1 && votes.length === 2) {
-        // One or both voted draw
-        timerEl.textContent      = "Round ended in a draw.";
-        overtimeEl.style.display = "none";
+        els.overtimePanel.style.display = "none";
+        els.roundTimer.textContent      = "";
+      } else if (votes.length === 2 && votes.some(v => v === "draw")) {
+        stopTimer(els.roundTimer, "timerInterval");
+        showResult(els.roundResult, "draw", "Round ended in a draw.");
+        els.overtimePanel.style.display = "none";
       }
     }
 
-    // Status bar
-    const hostLocked  = players.host?.locked;
-    const guestLocked = players.guest?.locked;
-    if (hostLocked && guestLocked) {
-      statusMsg(`Room ${state.roomCode} — both secrets locked. Match is live!`);
-    } else if (opponent.secret) {
-      statusMsg(`Room ${state.roomCode} — waiting for both players to lock secrets.`);
-    } else {
-      statusMsg(`Room ${state.roomCode} ready. Waiting for your friend to join.`);
+    // Status
+    const hLocked = players.host?.locked, gLocked = players.guest?.locked;
+    if (hLocked && gLocked) els.connectionStatus.textContent = `Room ${state.roomCode} — both secrets locked. Match is live!`;
+    else if (opponent.joinedAt) els.connectionStatus.textContent = `Room ${state.roomCode} — waiting for both players to lock.`;
+    else els.connectionStatus.textContent = `Room ${state.roomCode} ready. Waiting for friend to join.`;
+
+    // Auto-restart on win
+    const winner = roundTurns.find(t => t.correct);
+    if (winner && !room.restartScheduled) {
+      const iWon = winner.by === state.role;
+      stopTimer(els.roundTimer, "timerInterval");
+      showResult(els.roundResult, iWon ? "win" : "lose",
+        iWon ? `🎉 You cracked it! New round in ${AUTO_RESTART_MS / 1000}s…`
+              : `😬 Friend cracked it! New round in ${AUTO_RESTART_MS / 1000}s…`);
+      if (state.role === "host") {
+        await fbPatch(`rooms/${state.roomCode}`, { restartScheduled: true });
+        setTimeout(startNewOnlineRound, AUTO_RESTART_MS);
+      }
     }
 
-    renderAll();
-  } catch (err) {
-    statusMsg(err.message);
-  }
+    renderAll(room.currentTurn);
+  } catch (err) { els.connectionStatus.textContent = err.message; }
 }
 
-function startPolling() {
-  stopPolling();
-  syncFromRoom();
-  state.poller = setInterval(syncFromRoom, POLL_MS);
-}
+function startPolling() { stopPolling(); syncFromRoom(); state.poller = setInterval(syncFromRoom, POLL_MS); }
 
-// ─── Room create / join ───────────────────────────────────────────────────────
+// ─── 1v1 create / join ────────────────────────────────────────────────────────
 
 async function createOnlineRoom() {
   const code = randomRoomCode();
-  state.online   = true;
-  state.role     = "host";
-  state.roomCode = code;
-  els.roomInput.value    = code;
-  els.roomCode.textContent = code;
+  state.online = true; state.role = "host"; state.roomCode = code;
+  els.roomInput.value = code; els.roomCode.textContent = code;
 
   await fbPut(code, {
-    createdAt:      Date.now(),
-    settings:       roomSettings(),
-    roundNumber:    0,
-    roundStartedAt: null,
-    currentTurn:    null,   // null = not started; set on first guess
-    timedOut:       false,
-    overtimeVotes:  {},
+    createdAt: Date.now(), settings: roomSettings(),
+    roundNumber: 0, roundStartedAt: null, currentTurn: null,
+    timedOut: false, overtimeVotes: {}, restartScheduled: false,
     players: {
       host:  { secret: "", locked: false, joinedAt: Date.now() },
       guest: { secret: "", locked: false, joinedAt: null },
@@ -487,373 +753,499 @@ async function createOnlineRoom() {
     turns: [],
   });
 
-  state.playerHistory   = [];
-  state.opponentHistory = [];
-  applyLockUI(false);
-  els.secretInput.value = "";
-  els.secretStatus.textContent = `Room ${code} created. Share this code with your friend, then lock your secret.`;
-  startPolling();
-  renderAll();
+  state.playerHistory = []; state.opponentHistory = [];
+  applyLockUI(false); els.secretInput.value = "";
+  hideResult(els.roundResult);
+  els.connectionStatus.textContent = `Room ${code} created. Share this code, then lock your secret.`;
+  startPolling(); renderAll();
 }
 
 async function joinOnlineRoom() {
-  const code    = els.roomInput.value.trim().toUpperCase();
-  if (!code || code.length !== 4) { statusMsg("Enter a 4-character room code first."); return; }
-
+  const code = els.roomInput.value.trim().toUpperCase();
+  if (!code || code.length !== 4) { els.connectionStatus.textContent = "Enter a 4-character room code."; return; }
   const room = await fbGet(code);
-  if (!room) { statusMsg(`Room ${code} was not found.`); return; }
+  if (!room) { els.connectionStatus.textContent = `Room ${code} not found.`; return; }
 
-  state.online   = true;
-  state.role     = "guest";
-  state.roomCode = code;
-  applySettings(room.settings);
-  els.roomCode.textContent = code;
+  state.online = true; state.role = "guest"; state.roomCode = code;
+  applySettings(room.settings); els.roomCode.textContent = code;
 
-  // Only reset guest if they haven't already locked
-  const existingGuest = room?.players?.guest;
-  if (!existingGuest?.locked) {
-    await fbPatch(`rooms/${code}/players/guest`, {
-      secret:   "",
-      locked:   false,
-      joinedAt: Date.now(),
-    });
+  if (!room?.players?.guest?.locked) {
+    await fbPatch(`rooms/${code}/players/guest`, { secret: "", locked: false, joinedAt: Date.now() });
   }
 
-  applyLockUI(false);
-  els.secretInput.value = "";
-  els.secretStatus.textContent = `Joined room ${code}. Enter your secret number and lock it.`;
-  startPolling();
-  renderAll();
+  applyLockUI(false); els.secretInput.value = "";
+  hideResult(els.roundResult);
+  els.connectionStatus.textContent = `Joined room ${code}. Enter and lock your secret.`;
+  startPolling(); renderAll();
 }
 
-// ─── Lock secret ──────────────────────────────────────────────────────────────
+// ─── 1v1 lock secret ─────────────────────────────────────────────────────────
 
 async function lockPlayerSecret() {
   const checked = validNumber(els.secretInput.value);
   if (!checked.ok) { els.secretStatus.textContent = checked.message; return; }
-
-  if (state.secretLocked) {
-    els.secretStatus.textContent = "Secret already locked.";
-    return;
-  }
+  if (state.secretLocked) { els.secretStatus.textContent = "Already locked."; return; }
 
   state.playerSecret = checked.value;
 
   if (state.online) {
     try {
-      const room = await fbGet(state.roomCode);
+      const room       = await fbGet(state.roomCode);
+      const round      = room.roundNumber || 0;
+      const roundTurns = (Array.isArray(room.turns) ? room.turns : []).filter(t => (t.round || 0) === round);
+      if (roundTurns.length > 0) { els.secretStatus.textContent = "Cannot change secret after round started."; return; }
+      if (room?.players?.[state.role]?.locked) { applyLockUI(true); els.secretStatus.textContent = "Already locked."; return; }
 
-      // Cannot lock once guesses have started this round
-      const currentRound = room.roundNumber || 0;
-      const allTurns     = Array.isArray(room.turns) ? room.turns : [];
-      const roundTurns   = allTurns.filter(t => (t.round || 0) === currentRound);
-      if (roundTurns.length > 0) {
-        els.secretStatus.textContent = "Cannot change secret once the round has started.";
-        return;
-      }
-
-      if (room?.players?.[state.role]?.locked) {
-        els.secretStatus.textContent = "Secret already locked for this round.";
-        applyLockUI(true);
-        return;
-      }
-
-      await fbPatch(`rooms/${state.roomCode}/players/${state.role}`, {
-        secret:    checked.value,
-        locked:    true,
-        updatedAt: Date.now(),
-      });
-
+      await fbPatch(`rooms/${state.roomCode}/players/${state.role}`, { secret: checked.value, locked: true, updatedAt: Date.now() });
       applyLockUI(true);
 
-      // Check if both are now locked
-      const updated     = await fbGet(state.roomCode);
-      const hostLocked  = updated?.players?.host?.locked;
-      const guestLocked = updated?.players?.guest?.locked;
-
-      if (hostLocked && guestLocked) {
-        els.secretStatus.textContent = "Both secrets locked — match is live! Start guessing.";
-      } else {
-        els.secretStatus.textContent = "Secret locked. Waiting for your opponent to lock theirs.";
-      }
-    } catch (err) {
-      statusMsg(err.message);
-    }
+      // Use retry-aware check so cross-device stale reads don't falsely block guessing
+      state.checkingLock = true;
+      const updated  = await fbGetUntilBothLocked(state.roomCode, state.role);
+      state.checkingLock = false;
+      const bothLocked = updated?.players?.host?.locked && updated?.players?.guest?.locked;
+      els.secretStatus.textContent = bothLocked
+        ? "Both secrets locked — match is live! Start guessing."
+        : "Secret locked. Waiting for opponent to lock theirs.";
+    } catch (err) { els.connectionStatus.textContent = err.message; }
   } else {
-    // Local / Nova mode
     applyLockUI(true);
-    state.opponentSecret = makeSecret(state.codeLength, state.repeats);
-    els.secretStatus.textContent = `Secret locked. Nova's code is hidden. Start guessing!`;
+    els.secretStatus.textContent = "Secret locked — guess Nova's code!";
   }
 }
 
-// ─── Online guessing ──────────────────────────────────────────────────────────
+// ─── 1v1 online guess ────────────────────────────────────────────────────────
 
 async function submitOnlineGuess(guess) {
-  // Single authoritative fetch — no double-fetch races
-  const room         = await fbGet(state.roomCode);
-  const opponentRole = state.role === "host" ? "guest" : "host";
-  const hostLocked   = room?.players?.host?.locked;
-  const guestLocked  = room?.players?.guest?.locked;
+  // Always use retry-aware fetch so cross-device stale locks don't wrongly block
+  const room = await fbGetUntilBothLocked(state.roomCode, state.role);
 
-  if (!hostLocked || !guestLocked) {
-    els.secretStatus.textContent = "Both players must lock secrets before guessing.";
+  const opponentRole = state.role === "host" ? "guest" : "host";
+  const hLocked = room?.players?.host?.locked, gLocked = room?.players?.guest?.locked;
+
+  if (!hLocked || !gLocked) {
+    els.secretStatus.textContent = "Both players must lock secrets before guessing. (Waiting for sync…)";
+    // Schedule a retry in 1.5s to handle slow cross-device propagation
+    setTimeout(() => { if (!state.secretLocked) return; submitOnlineGuess(guess); }, 1500);
     return;
   }
 
   if (state.matchType === "Real-Time" && room.timedOut) {
-    els.secretStatus.textContent = "Time is up. Vote for overtime or end as a draw.";
+    els.secretStatus.textContent = "Time is up. Vote for overtime or draw.";
     return;
   }
 
-  // Turn-based enforcement — strict alternation
   if (state.matchType === "Turn-Based") {
-    const currentRound = room.roundNumber || 0;
-    const allTurns     = Array.isArray(room.turns) ? room.turns : [];
-    const roundTurns   = allTurns.filter(t => (t.round || 0) === currentRound);
-
-    // Count how many times each player has guessed this round
-    const myCount  = roundTurns.filter(t => t.by === state.role).length;
-    const oppCount = roundTurns.filter(t => t.by === opponentRole).length;
-
-    // I can only guess if my count equals opponent's count (their turn unlocks mine)
-    // Exception: very first guess of the round — whoever goes first is fine
-    if (myCount > oppCount) {
-      els.secretStatus.textContent = "Wait for your opponent to guess before you can go again.";
-      return;
-    }
+    const round      = room.roundNumber || 0;
+    const roundTurns = (Array.isArray(room.turns) ? room.turns : []).filter(t => (t.round || 0) === round);
+    const myCount    = roundTurns.filter(t => t.by === state.role).length;
+    const oppCount   = roundTurns.filter(t => t.by === opponentRole).length;
+    if (myCount > oppCount) { els.secretStatus.textContent = "Wait for your opponent to guess first."; return; }
   }
 
   const opponentSecret = room?.players?.[opponentRole]?.secret;
-  if (!opponentSecret) {
-    els.secretStatus.textContent = "Your friend has not locked a secret yet.";
-    return;
-  }
+  if (!opponentSecret) { els.secretStatus.textContent = "Friend hasn't locked a secret yet."; return; }
 
-  const currentRound = room.roundNumber || 0;
-  const clues        = scoreGuess(guess, opponentSecret);
-  const correct      = guess === opponentSecret;
-  const allTurns     = Array.isArray(room.turns) ? room.turns : [];
+  const round    = room.roundNumber || 0;
+  const clues    = scoreGuess(guess, opponentSecret);
+  const correct  = guess === opponentSecret;
+  const allTurns = Array.isArray(room.turns) ? room.turns : [];
+  allTurns.push({ round, by: state.role, guess, clues, correct, createdAt: Date.now() });
 
-  allTurns.push({
-    round:     currentRound,
-    by:        state.role,
-    guess,
-    clues,
-    correct,
-    createdAt: Date.now(),
-  });
-
-  const patch = {
-    turns:       allTurns,
-    currentTurn: opponentRole,
-  };
-
-  // Stamp roundStartedAt on the very first guess (kicks off the real-time timer)
-  if (state.matchType === "Real-Time" && !room.roundStartedAt) {
-    patch.roundStartedAt = Date.now();
-  }
+  const patch = { turns: allTurns, currentTurn: opponentRole };
+  if (state.matchType === "Real-Time" && !room.roundStartedAt) patch.roundStartedAt = Date.now();
 
   await fbPatch(`rooms/${state.roomCode}`, patch);
-  state.guesses++;
 
   if (correct) {
-    state.wins++;
-    state.streak++;
-    stopTimer();
-    overtimeEl.style.display = "none";
-    els.secretStatus.textContent = `You cracked your friend's code! You win room ${state.roomCode}.`;
+    els.secretStatus.textContent = "You cracked it! Next round coming…";
+    stopTimer(els.roundTimer, "timerInterval");
   } else {
-    els.secretStatus.textContent = state.matchType === "Turn-Based"
-      ? "Guess sent — your opponent's turn."
-      : "Guess sent — keep going!";
+    els.secretStatus.textContent = state.matchType === "Turn-Based" ? "Guess sent — opponent's turn." : "Guess sent!";
   }
 
   await syncFromRoom();
   renderAll();
 }
 
-// ─── Reset / new round ────────────────────────────────────────────────────────
+// ─── 1v1 new online round ─────────────────────────────────────────────────────
 
-async function resetMatch() {
-  stopTimer();
-  overtimeEl.style.display = "none";
+async function startNewOnlineRound() {
+  const room      = await fbGet(state.roomCode);
+  const nextRound = (room.roundNumber || 0) + 1;
+  await fbPatch(`rooms/${state.roomCode}`, {
+    roundNumber: nextRound, roundStartedAt: null, currentTurn: null,
+    timedOut: false, overtimeVotes: {}, restartScheduled: false,
+  });
+  await fbPatch(`rooms/${state.roomCode}/players/host`,  { secret: "", locked: false });
+  await fbPatch(`rooms/${state.roomCode}/players/guest`, { secret: "", locked: false });
+  applyLockUI(false); els.secretInput.value = ""; state.playerHistory = []; state.opponentHistory = [];
+  hideResult(els.roundResult);
+  els.connectionStatus.textContent = `Round ${nextRound} — enter and lock a new secret.`;
+  await syncFromRoom();
+}
 
-  if (state.online) {
-    if (state.role !== "host") {
-      els.secretStatus.textContent = "Only the host can start a new round.";
-      return;
+// ─── Group polling ────────────────────────────────────────────────────────────
+
+function stopGroupPolling() { if (state.groupPoller) { clearInterval(state.groupPoller); state.groupPoller = null; } }
+
+async function syncGroupRoom() {
+  if (!state.groupOnline || !state.groupRoomCode) return;
+  try {
+    const room = await fbGetGroup(state.groupRoomCode);
+    if (!room) { els.groupStatus.textContent = "Room no longer exists."; return; }
+
+    state.groupSecret = room.secret || "";
+    const round       = room.roundNumber || 0;
+    const allTurns    = Array.isArray(room.turns) ? room.turns : [];
+    const roundTurns  = allTurns.filter(t => (t.round || 0) === round);
+    const players     = room.players || {};
+    const playerCount = Object.keys(players).length;
+
+    els.groupStatus.textContent = `Room ${state.groupRoomCode} · ${playerCount} player${playerCount !== 1 ? "s" : ""}`;
+
+    // Timer
+    const gMatchType = room.settings?.groupMatchType || "Real-Time";
+    if (gMatchType === "Real-Time" && room.roundStartedAt && !state.groupTimerInterval && !room.timedOut) {
+      startTimerEl(els.groupRoundTimer, "groupTimerInterval", room.roundStartedAt, () => {
+        els.overtimePanel.style.display = "block";
+        if (state.groupPlayerName === Object.keys(players)[0]) {
+          fbPatch(`groupRooms/${state.groupRoomCode}`, { timedOut: true, overtimeVotes: {} }).catch(() => {});
+        }
+      });
     }
 
-    const room        = await fbGet(state.roomCode);
-    const nextRound   = (room.roundNumber || 0) + 1;
+    // Winner detection — auto-restart
+    const winner = roundTurns.find(t => t.correct);
+    if (winner && !room.restartScheduled) {
+      const iWon = winner.by === state.groupPlayerName;
+      stopTimer(els.groupRoundTimer, "groupTimerInterval");
+      showResult(els.groupRoundResult, iWon ? "win" : "lose",
+        iWon ? `🎉 You cracked the code! New round in ${AUTO_RESTART_MS / 1000}s…`
+              : `${winner.by.replace("player_", "Player ")} cracked it! New round in ${AUTO_RESTART_MS / 1000}s…`);
+      const isFirstPlayer = state.groupPlayerName === Object.keys(players).sort()[0];
+      if (isFirstPlayer) {
+        await fbPatch(`groupRooms/${state.groupRoomCode}`, { restartScheduled: true });
+        setTimeout(startNewGroupRound, AUTO_RESTART_MS);
+      }
+    }
 
-    await fbPatch(`rooms/${state.roomCode}`, {
-      roundNumber:    nextRound,
-      roundStartedAt: null,
-      currentTurn:    null,
-      timedOut:       false,
-      overtimeVotes:  {},
-    });
-    await fbPatch(`rooms/${state.roomCode}/players/host`,  { secret: "", locked: false });
-    await fbPatch(`rooms/${state.roomCode}/players/guest`, { secret: "", locked: false });
+    renderGroupBoard(room);
+  } catch (err) { els.groupStatus.textContent = err.message; }
+}
 
-    applyLockUI(false);
-    els.secretInput.value = "";
-    state.playerHistory   = [];
-    state.opponentHistory = [];
-    els.secretStatus.textContent = `Round ${nextRound} started. Both players: enter and lock a new secret.`;
-    await syncFromRoom();
+function startGroupPolling() { stopGroupPolling(); syncGroupRoom(); state.groupPoller = setInterval(syncGroupRoom, POLL_MS); }
+
+// ─── Group create / join ──────────────────────────────────────────────────────
+
+async function createGroupRoom() {
+  const code = randomRoomCode();
+  const name = "player_" + Math.floor(Math.random() * 9000 + 1000);
+  state.groupOnline      = true;
+  state.groupRoomCode    = code;
+  state.groupPlayerName  = name;
+  els.groupRoomInput.value    = code;
+  els.groupRoomCode.textContent = code;
+
+  const secret = makeSecret(state.codeLength, state.repeats);
+  state.groupSecret = secret;
+
+  await fbPutGroup(code, {
+    createdAt: Date.now(),
+    secret,
+    roundNumber: 0, roundStartedAt: null, currentTurn: null,
+    timedOut: false, overtimeVotes: {}, restartScheduled: false,
+    settings: { groupMatchType: state.groupMatchType, groupVisibility: state.groupVisibility, codeLength: state.codeLength, repeats: state.repeats },
+    players: { [name]: { joinedAt: Date.now() } },
+    turns: [],
+  });
+
+  els.groupSecretStatus.textContent = `Room ${code} created. Code is hidden. Share the code — then start guessing!`;
+  startGroupPolling();
+}
+
+async function joinGroupRoom() {
+  const code = els.groupRoomInput.value.trim().toUpperCase();
+  if (!code || code.length !== 4) { els.groupStatus.textContent = "Enter a 4-character room code."; return; }
+
+  const room = await fbGetGroup(code);
+  if (!room) { els.groupStatus.textContent = `Room ${code} not found.`; return; }
+
+  const name = "player_" + Math.floor(Math.random() * 9000 + 1000);
+  state.groupOnline     = true;
+  state.groupRoomCode   = code;
+  state.groupPlayerName = name;
+  state.groupSecret     = room.secret || "";
+  els.groupRoomCode.textContent = code;
+
+  // Cap at 5 players
+  const currentCount = Object.keys(room.players || {}).length;
+  if (currentCount >= 5) { els.groupStatus.textContent = "Room is full (max 5 players)."; return; }
+
+  await fbPatch(`groupRooms/${code}/players/${name}`, { joinedAt: Date.now() });
+
+  els.groupSecretStatus.textContent = `Joined room ${code}. The code is hidden — start guessing!`;
+  startGroupPolling();
+}
+
+// ─── Group guess ─────────────────────────────────────────────────────────────
+
+async function submitGroupGuess(guess) {
+  const room  = await fbGetGroup(state.groupRoomCode);
+  const gMatchType = room?.settings?.groupMatchType || "Real-Time";
+
+  // Turn-based group: check it's this player's turn
+  if (gMatchType === "Turn-Based" && room.currentTurn && room.currentTurn !== state.groupPlayerName) {
+    els.groupSecretStatus.textContent = "Wait for your turn.";
     return;
   }
 
-  clearLocalMatch("New round started. Enter and lock your secret to begin.");
+  const secret   = room.secret || state.groupSecret;
+  const clues    = scoreEasy(guess, secret);   // group always uses easy scoring for clues
+  const correct  = guess === secret;
+  const round    = room.roundNumber || 0;
+  const allTurns = Array.isArray(room.turns) ? room.turns : [];
+
+  // Turn-based: check player hasn't gone more than others
+  if (gMatchType === "Turn-Based") {
+    const roundTurns = allTurns.filter(t => (t.round || 0) === round);
+    const players    = Object.keys(room.players || {});
+    const myCount    = roundTurns.filter(t => t.by === state.groupPlayerName).length;
+    const minCount   = Math.min(...players.map(p => roundTurns.filter(t => t.by === p).length));
+    if (myCount > minCount) { els.groupSecretStatus.textContent = "Wait for others to catch up."; return; }
+  }
+
+  // Determine next turn (round-robin)
+  const players  = Object.keys(room.players || {}).sort();
+  const myIdx    = players.indexOf(state.groupPlayerName);
+  const nextTurn = players[(myIdx + 1) % players.length];
+
+  allTurns.push({ round, by: state.groupPlayerName, guess, clues, correct, createdAt: Date.now() });
+  const patch = { turns: allTurns, currentTurn: nextTurn };
+  if (gMatchType === "Real-Time" && !room.roundStartedAt) patch.roundStartedAt = Date.now();
+
+  await fbPatch(`groupRooms/${state.groupRoomCode}`, patch);
+
+  if (correct) {
+    els.groupSecretStatus.textContent = `You cracked the code! Next round coming…`;
+  } else {
+    els.groupSecretStatus.textContent = "Guess submitted!";
+  }
+
+  await syncGroupRoom();
+}
+
+// ─── New group round ──────────────────────────────────────────────────────────
+
+async function startNewGroupRound() {
+  const room      = await fbGetGroup(state.groupRoomCode);
+  const nextRound = (room.roundNumber || 0) + 1;
+  const newSecret = makeSecret(state.codeLength, state.repeats);
+
+  await fbPatch(`groupRooms/${state.groupRoomCode}`, {
+    secret: newSecret, roundNumber: nextRound, roundStartedAt: null,
+    currentTurn: null, timedOut: false, overtimeVotes: {}, restartScheduled: false,
+  });
+
+  state.groupSecret = newSecret;
+  hideResult(els.groupRoundResult);
+  els.groupSecretStatus.textContent = `Round ${nextRound} — new code hidden. Start guessing!`;
+  await syncGroupRoom();
+}
+
+// ─── Reset handler ────────────────────────────────────────────────────────────
+
+async function handleReset() {
+  stopTimer(els.roundTimer, "timerInterval");
+  els.overtimePanel.style.display = "none";
+  hideResult(els.roundResult);
+
+  if (state.playMode === "nova") { startNovaRound("New round! Lock your secret."); return; }
+
+  if (state.playMode === "multiplayer" && state.online) {
+    if (state.role !== "host") { els.secretStatus.textContent = "Only the host can reset."; return; }
+    await startNewOnlineRound();
+    return;
+  }
+
+  resetLocalState("New round. Lock your secret to start.");
+}
+
+async function handleGroupReset() {
+  hideResult(els.groupRoundResult);
+  if (!state.groupOnline) return;
+  const room    = await fbGetGroup(state.groupRoomCode);
+  const players = Object.keys(room?.players || {}).sort();
+  if (state.groupPlayerName !== players[0]) { els.groupSecretStatus.textContent = "Only the room creator can reset."; return; }
+  await startNewGroupRound();
 }
 
 // ─── Settings helpers ─────────────────────────────────────────────────────────
 
 async function updateSettingsIfHost() {
   if (state.online && state.role === "host") {
-    await fbPatch(`rooms/${state.roomCode}`, { settings: roomSettings() });
+    await fbPatch(`rooms/${state.roomCode}`, { settings: roomSettings() }).catch(() => {});
   }
 }
 
-function setMode(mode) {
-  state.mode = mode;
-  syncModeButtons();
-  renderAll();
-  updateSettingsIfHost();
+function setClueMode(mode) {
+  state.clueMode = mode; syncClueButtons(); renderAll(); updateSettingsIfHost();
 }
 
 function setMatchType(type) {
-  state.matchType = type;
-  syncMatchButtons();
-  updateSettingsIfHost();
+  state.matchType = type; syncMatchButtons(); updateSettingsIfHost();
+}
+
+function setNovaDifficulty(diff) {
+  state.novaDifficulty = diff; syncDiffButtons();
+  startNovaRound(`Difficulty: ${diff}. Lock your secret.`);
 }
 
 function syncLength() {
-  state.codeLength              = Number(els.codeLength.value);
-  els.secretInput.maxLength     = state.codeLength;
-  els.guessInput.maxLength      = state.codeLength;
-  clearLocalMatch(`${state.codeLength}-digit round ready. Enter and lock a new secret.`);
+  state.codeLength = Number(els.codeLength.value);
+  els.secretInput.maxLength = state.codeLength;
+  els.guessInput.maxLength  = state.codeLength;
+  if (state.playMode === "nova")          startNovaRound(`${state.codeLength}-digit round. Lock your secret.`);
+  else if (state.playMode === "group")    els.groupSecretStatus.textContent = `Code length set to ${state.codeLength}.`;
+  else                                    resetLocalState(`${state.codeLength}-digit codes. Lock your secret.`);
   updateSettingsIfHost();
 }
 
 // ─── Event listeners ──────────────────────────────────────────────────────────
 
-els.themeToggle.addEventListener("click", () => {
-  document.documentElement.classList.toggle("light");
+// Mode picker
+els.pickMultiplayer.addEventListener("click", () => enterMultiplayerMode());
+els.pickGroup.addEventListener("click",       () => enterGroupMode());
+els.pickNova.addEventListener("click", () => {
+  els.pickCards.style.display      = "none";
+  els.novaDiffPicker.style.display = "block";
+});
+els.backToModes.addEventListener("click", () => {
+  els.novaDiffPicker.style.display = "none";
+  els.pickCards.style.display      = "grid";
+});
+document.querySelectorAll(".diff-card").forEach(card => {
+  card.addEventListener("click", () => enterNovaMode(card.dataset.diff));
 });
 
+// Switch / brand
+els.switchMode.addEventListener("click", () => { stopPolling(); stopGroupPolling(); stopTimer(els.roundTimer, "timerInterval"); state.online = false; state.role = null; state.groupOnline = false; showModePicker(); });
+els.brandHome.addEventListener("click",  e => { e.preventDefault(); stopPolling(); stopGroupPolling(); stopTimer(els.roundTimer, "timerInterval"); state.online = false; state.role = null; state.groupOnline = false; showModePicker(); });
+
+// Theme
+els.themeToggle.addEventListener("click", () => document.documentElement.classList.toggle("light"));
+
+// 1v1
 els.createRoom.addEventListener("click", async () => {
-  try {
-    if (!firebaseReady) {
-      const code = randomRoomCode();
-      state.online = false; state.role = null; state.roomCode = code;
-      els.roomInput.value = code; els.roomCode.textContent = code;
-      statusMsg("Room code created for demo only. Add Firebase config for friend multiplayer.");
-      clearLocalMatch("Local demo room created. Lock your secret to race Nova.");
-      return;
-    }
-    await createOnlineRoom();
-  } catch (err) { statusMsg(err.message); }
+  try { if (!firebaseReady) { els.connectionStatus.textContent = "Add Firebase config for multiplayer."; return; } await createOnlineRoom(); }
+  catch (err) { els.connectionStatus.textContent = err.message; }
 });
-
 els.joinRoom.addEventListener("click", async () => {
-  try {
-    if (!firebaseReady) {
-      statusMsg("Join needs Firebase config. GitHub Pages alone cannot sync two devices.");
-      return;
-    }
-    await joinOnlineRoom();
-  } catch (err) { statusMsg(err.message); }
+  try { if (!firebaseReady) { els.connectionStatus.textContent = "Add Firebase config for multiplayer."; return; } await joinOnlineRoom(); }
+  catch (err) { els.connectionStatus.textContent = err.message; }
 });
-
 els.roomInput.addEventListener("input", () => {
-  els.roomInput.value      = els.roomInput.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+  els.roomInput.value = els.roomInput.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
   els.roomCode.textContent = els.roomInput.value || "----";
 });
-
-els.easyMode.addEventListener("click",  () => setMode("easy"));
-els.hardMode.addEventListener("click",  () => setMode("hard"));
 els.realTime.addEventListener("click",  () => setMatchType("Real-Time"));
 els.turnBased.addEventListener("click", () => setMatchType("Turn-Based"));
 
-els.repeatDigits.addEventListener("change", () => {
-  state.repeats = els.repeatDigits.checked;
-  syncLength();
+// Group
+els.createGroupRoom.addEventListener("click", async () => {
+  try { if (!firebaseReady) { els.groupStatus.textContent = "Add Firebase config."; return; } await createGroupRoom(); }
+  catch (err) { els.groupStatus.textContent = err.message; }
 });
+els.joinGroupRoom.addEventListener("click", async () => {
+  try { if (!firebaseReady) { els.groupStatus.textContent = "Add Firebase config."; return; } await joinGroupRoom(); }
+  catch (err) { els.groupStatus.textContent = err.message; }
+});
+els.groupRoomInput.addEventListener("input", () => {
+  els.groupRoomInput.value = els.groupRoomInput.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+  els.groupRoomCode.textContent = els.groupRoomInput.value || "----";
+});
+els.groupRealTime.addEventListener("click",  () => { state.groupMatchType = "Real-Time";  syncGroupMatchButtons(); });
+els.groupTurnBased.addEventListener("click", () => { state.groupMatchType = "Turn-Based"; syncGroupMatchButtons(); });
+els.groupEasyVis.addEventListener("click",   () => { state.groupVisibility = "all"; syncGroupVisButtons(); });
+els.groupHardVis.addEventListener("click",   () => { state.groupVisibility = "own"; syncGroupVisButtons(); });
 
-els.codeLength.addEventListener("change", syncLength);
+// Nova difficulty
+els.diffEasy.addEventListener("click",       () => setNovaDifficulty("easy"));
+els.diffMedium.addEventListener("click",     () => setNovaDifficulty("medium"));
+els.diffImpossible.addEventListener("click", () => setNovaDifficulty("impossible"));
 
+// Clue mode + settings
+els.easyMode.addEventListener("click",     () => setClueMode("easy"));
+els.hardMode.addEventListener("click",     () => setClueMode("hard"));
+els.repeatDigits.addEventListener("change",() => { state.repeats = els.repeatDigits.checked; syncLength(); });
+els.codeLength.addEventListener("change",  syncLength);
+
+// Lock secret
 els.lockSecret.addEventListener("click", lockPlayerSecret);
 
-els.guessForm.addEventListener("submit", async event => {
-  event.preventDefault();
+// Guess form
+els.guessForm.addEventListener("submit", async e => {
+  e.preventDefault();
   const checked = validNumber(els.guessInput.value);
   if (!checked.ok) { els.secretStatus.textContent = checked.message; return; }
-
   const guess = checked.value;
 
-  if (state.online) {
-    await submitOnlineGuess(guess);
+  if (state.playMode === "group") { await submitGroupGuess(guess); return; }
+
+  if (state.playMode === "multiplayer") {
+    if (state.online) { await submitOnlineGuess(guess); return; }
+    els.secretStatus.textContent = "Create or join a room first.";
     return;
   }
 
-  // ── Local / Nova mode ──
-  if (!state.secretLocked) {
-    els.secretStatus.textContent = "Lock your secret before guessing.";
-    return;
-  }
-
+  // Nova
+  if (!state.secretLocked) { els.secretStatus.textContent = "Lock your secret first."; return; }
   const clues   = scoreGuess(guess, state.opponentSecret);
+  const correct = guess === state.opponentSecret;
   state.playerHistory.push({ guess, clues });
-  state.guesses++;
 
-  if (guess === state.opponentSecret) {
-    state.wins++;
-    state.streak++;
-    els.secretStatus.textContent = `You solved Nova's code ${state.opponentSecret}! You win.`;
-  } else {
-    const novaWon = novaTurn(state.playerSecret);
-    if (!novaWon) {
-      const wc = els.winCondition.value;
-      els.secretStatus.textContent = wc === "Timed match"
-        ? "Guess logged. Nova answered. Timer pressure stays on."
-        : wc === "Point system"
-          ? "Guess logged. Nova answered. Partial clues feed the point system."
-          : "Guess logged. Nova guessed — check their history.";
-    }
+  if (correct) {
+    showResult(els.roundResult, "win", `🎉 You cracked Nova's code (${state.opponentSecret})! New round in ${AUTO_RESTART_MS / 1000}s…`);
+    renderAll();
+    setTimeout(() => startNovaRound("New round! Lock your secret."), AUTO_RESTART_MS);
+    return;
   }
 
+  const novaWon = novaTakeTurn();
   renderAll();
+
+  if (novaWon) {
+    showResult(els.roundResult, "lose", `😬 Nova guessed your secret (${state.playerSecret})! New round in ${AUTO_RESTART_MS / 1000}s…`);
+    setTimeout(() => startNovaRound("New round! Lock your secret."), AUTO_RESTART_MS);
+  } else {
+    els.secretStatus.textContent = "Guess logged — Nova took its turn.";
+  }
 });
 
-els.resetMatch.addEventListener("click", resetMatch);
+// Reset
+els.resetMatch.addEventListener("click",      handleReset);
+els.resetGroupMatch.addEventListener("click", handleGroupReset);
 
-// Overtime vote buttons
-voteOvertimeBtn.addEventListener("click", async () => {
+// Overtime votes
+els.voteOvertime.addEventListener("click", async () => {
   if (!state.online) return;
   await fbPatch(`rooms/${state.roomCode}/overtimeVotes`, { [state.role]: "overtime" });
-  voteOvertimeBtn.disabled = true;
-  voteOvertimeBtn.textContent = "Voted — Overtime";
+  els.voteOvertime.disabled = true; els.voteOvertime.textContent = "Voted — Overtime";
   await syncFromRoom();
 });
-
-voteDrawBtn.addEventListener("click", async () => {
+els.voteDraw.addEventListener("click", async () => {
   if (!state.online) return;
   await fbPatch(`rooms/${state.roomCode}/overtimeVotes`, { [state.role]: "draw" });
-  voteDrawBtn.disabled = true;
-  voteDrawBtn.textContent = "Voted — Draw";
-  timerEl.textContent      = "You voted to end as a draw.";
-  overtimeEl.style.display = "none";
+  els.voteDraw.disabled = true; els.voteDraw.textContent = "Voted — Draw";
+  els.overtimePanel.style.display = "none";
   await syncFromRoom();
 });
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
-statusMsg(firebaseReady
-  ? "Firebase ready. Create or join a room to play with a friend."
-  : "Local demo mode. Add Firebase config for real friend multiplayer."
-);
-clearLocalMatch("Enter your secret number and lock it to start.");
+syncClueButtons();
+syncMatchButtons();
+syncGroupMatchButtons();
+syncGroupVisButtons();
+showModePicker();
+renderAll();
